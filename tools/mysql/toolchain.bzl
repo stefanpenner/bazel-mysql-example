@@ -44,22 +44,31 @@ def _shq(value):
     return "'" + value.replace("'", "'\\''") + "'"
 
 def _mysql_datadir_impl(ctx):
-    # --no-defaults keeps the action off the host my.cnf.
     # mysqld --initialize-insecure is not bit-stable. The output is a cache of that tool.
+    # The flag file is an action input, so an edit rebuilds this directory.
     tool = ctx.toolchains[TOOLCHAIN_TYPE]
     out = ctx.actions.declare_directory(ctx.label.name)
+    flags = ctx.file.flags
     command = "\n".join([
         "set -eu",
         "root=$(pwd)",
         "mysqld=" + _shq(tool.mysqld.path),
         "out=" + _shq(out.path),
+        "flags=" + _shq(flags.path),
         'case "$mysqld" in /*) ;; *) mysqld="$root/$mysqld" ;; esac',
         'case "$out" in /*) ;; *) out="$root/$out" ;; esac',
+        'case "$flags" in /*) ;; *) flags="$root/$flags" ;; esac',
         'base=$(dirname "$(dirname "$mysqld")")',
         'user_arg=""',
         'if [ "$(id -u)" -eq 0 ]; then',
+        # MySQL refuses to run as root without --user.
+        # Some builds run this action as uid 0.
+        # Impact: initialize finishes when the uid is 0.
         '  user_arg="--user=root"',
         "fi",
+        # plugin-dir is the plugin directory inside basedir.
+        # MySQL loads server plugins only from that directory.
+        # Impact: initialize does not load a host plugin.
         'plugin_arg=""',
         'if [ -d "$base/lib/plugin" ]; then',
         '  plugin_arg="--plugin-dir=$base/lib/plugin"',
@@ -69,16 +78,17 @@ def _mysql_datadir_impl(ctx):
         'export DYLD_LIBRARY_PATH="$base/lib:$base/bin"',
         'export LD_LIBRARY_PATH="$base/lib:$base/bin"',
         'mkdir -p "$out"',
-        # The redo log default is 100 MiB. An 8 MiB log makes the template 97.6 MiB versus 189.6 MiB.
-        # Initialize warns that this log is full, and the action still finishes.
-        # Doublewrite files add 16 MiB. The test server skips doublewrite, so this action skips it too.
-        # The pool, the log buffer, the commit flush, the flush method, and the event scheduler match the test server.
-        '"$mysqld" --no-defaults --basedir="$base" --datadir="$out" $plugin_arg $user_arg --innodb-buffer-pool-size=33554432 --innodb-log-buffer-size=8388608 --innodb-redo-log-capacity=8388608 --innodb-flush-log-at-trx-commit=0 --innodb-flush-method=nosync --skip-innodb-doublewrite --event-scheduler=OFF --initialize-insecure',
+        # --defaults-file is the first argument. MySQL reads that file and no host option file.
+        # --basedir is the MySQL install. Initialize reads share files from it.
+        # --datadir is this action output. The directory becomes the test template.
+        # --initialize-insecure creates the directory and exits. The root account has no password.
+        # Impact: each test copies this directory and starts mysqld.
+        '"$mysqld" --defaults-file="$flags" --basedir="$base" --datadir="$out" $plugin_arg $user_arg --initialize-insecure',
         'chmod 750 "$out"',
     ])
     ctx.actions.run_shell(
         outputs = [out],
-        inputs = tool.runtime,
+        inputs = tool.runtime + [flags],
         tools = [tool.mysqld],
         command = command,
         mnemonic = "MysqlDatadir",
@@ -91,6 +101,13 @@ def _mysql_datadir_impl(ctx):
 
 mysql_datadir = rule(
     implementation = _mysql_datadir_impl,
+    attrs = {
+        "flags": attr.label(
+            allow_single_file = [".cnf"],
+            default = "//tools/mysql:mysqld.cnf",
+            doc = "The only copy of the mysqld tuning flags.",
+        ),
+    },
     toolchains = [TOOLCHAIN_TYPE],
 )
 

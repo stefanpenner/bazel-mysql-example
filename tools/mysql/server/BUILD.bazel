@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("//tools/mysql:defs.bzl", "mysql_go_test")
+
+go_library(
+    name = "server",
+    srcs = ["server.go"],
+    importpath = "github.com/stefanpenner/bazel-mysql/tools/mysql/server",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tools/mysql/copy",
+        "@com_github_go_sql_driver_mysql//:mysql",
+    ],
+)
+
+mysql_go_test(
+    name = "server_test",
+    srcs = ["server_test.go"],
+    embed = [":server"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

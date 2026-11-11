@@ -4,21 +4,17 @@ load("//tools/mysql:defs.bzl", "mysql_go_test")
 go_library(
     name = "note",
     srcs = ["note.go"],
-    importpath = "github.com/stefanpenner/bazel-mysql/note",
+    importpath = "github.com/stefanpenner/bazel-mysql/example/go/note",
     visibility = ["//visibility:public"],
     deps = ["@com_github_go_sql_driver_mysql//:mysql"],
 )
 
 mysql_go_test(
     name = "note_test",
-    srcs = [
-        "note_test.go",
-        "server_test.go",
-    ],
+    srcs = ["note_test.go"],
     deps = [
         ":note",
-        "//tools/mysql/copy",
-        "@com_github_go_sql_driver_mysql//:mysql",
+        "//tools/mysql/server",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
     ],

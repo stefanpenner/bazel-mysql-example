@@ -5,9 +5,11 @@ def mysql_go_test(name, **kwargs):
     data = list(kwargs.pop("data", []))
     data.append("//tools/mysql:current")
     data.append("//tools/mysql:datadir")
+    data.append("//tools/mysql:mysqld.cnf")
     env = dict(kwargs.pop("env", {}))
     env["MYSQLD"] = "$(rlocationpath //tools/mysql:current)"
     env["MYSQL_DATADIR"] = "$(rlocationpath //tools/mysql:datadir)"
+    env["MYSQL_DEFAULTS_FILE"] = "$(rlocationpath //tools/mysql:mysqld.cnf)"
     gotags = list(kwargs.pop("gotags", []))
     if "bazel" not in gotags:
         gotags.append("bazel")

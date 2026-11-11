@@ -2,6 +2,11 @@
 
 load(":toolchain.bzl", "current_mysql", "declare_mysql_toolchains", "mysql_datadir")
 
+exports_files(
+    ["mysqld.cnf"],
+    visibility = ["//visibility:public"],
+)
+
 toolchain_type(
     name = "toolchain_type",
     visibility = ["//visibility:public"],

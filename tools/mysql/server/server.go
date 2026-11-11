@@ -1,6 +1,5 @@
-//go:build bazel
-
-package note_test
+// Package bazel_mysql starts one MySQL process for a test binary.
+package bazel_mysql
 
 import (
 	"database/sql"
@@ -12,19 +11,16 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-	"testing"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stefanpenner/bazel-mysql/tools/mysql/copy"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// server is one MySQL process for this test binary.
+// Server is one MySQL process for this test binary.
 // The socket path is short. macOS rejects a unix socket path longer than 104 bytes.
 // TEST_TMPDIR is longer than that.
-type server struct {
+type Server struct {
 	cmd     *exec.Cmd
 	log     *os.File
 	sock    string
@@ -34,7 +30,7 @@ type server struct {
 	exitErr error
 }
 
-func startServer() (*server, error) {
+func Start() (*Server, error) {
 	mysqld, err := locateMysqld()
 	if err != nil {
 		return nil, err
@@ -67,63 +63,55 @@ func startServer() (*server, error) {
 		return nil, err
 	}
 
+	defaults, err := locateDefaultsFile()
+	if err != nil {
+		logFile.Close()
+		os.RemoveAll(sockDir)
+		return nil, err
+	}
+	// --defaults-file is the first argument.
+	// MySQL reads that file and no host option file.
+	// The file is the only copy of the tuning flags.
 	args := []string{
-		"--no-defaults",
+		"--defaults-file=" + defaults,
+		// basedir is the MySQL install that contains this mysqld.
+		// The server loads its share files and plugins from that install.
+		// Impact: the server does not use a host MySQL install.
 		"--basedir=" + base,
+		// datadir is the private copy under TEST_TMPDIR.
+		// The shared template stays read-only.
+		// Impact: a test write stays in this copy.
 		"--datadir=" + dataDir,
 	}
 	if plugin := pluginDir(base); plugin != "" {
+		// plugin-dir is the plugin directory inside basedir.
+		// MySQL loads server plugins only from that directory.
+		// Impact: the server does not load a host plugin.
 		args = append(args, "--plugin-dir="+plugin)
 	}
 	if os.Geteuid() == 0 {
+		// MySQL refuses to run as root without --user.
+		// Some builds run the test as uid 0.
+		// Impact: the server starts when the uid is 0.
 		args = append(args, "--user=root")
 	}
 	env := serverEnv(base)
 
 	runArgs := append(append([]string{}, args...),
+		// The socket is under /tmp.
+		// macOS rejects a unix socket path longer than 104 bytes, and TEST_TMPDIR is longer.
+		// Impact: the client connects on this socket.
 		"--socket="+sock,
+		// The pid file records the server pid in the test temp directory.
+		// Impact: the pid is outside the data directory template.
 		"--pid-file="+pidFile,
-		"--skip-networking",
-		"--mysqlx=OFF",
-		"--skip-log-bin",
-		"--skip-performance-schema",
-		// The default buffer pool is 128 MiB.
-		// These tests read a few rows.
-		// A 16 MiB pool took a median of 286.8 ms for 2000 autocommit inserts, so this pool is 32 MiB.
-		// On this 48 GiB Mac the idle process used 246.2 MiB versus 254.3 MiB.
-		// Those inserts took a median of 83.2 ms versus 161.6 ms.
-		"--innodb-buffer-pool-size=33554432",
-		// The default log buffer is 64 MiB.
-		// An 8 MiB buffer holds these transactions.
-		// On this 48 GiB Mac the idle process used 198.3 MiB versus 254.3 MiB.
-		"--innodb-log-buffer-size=8388608",
-		// The default redo log is 100 MiB.
-		// Initialize stores an 8 MiB log, and the template is 97.6 MiB versus 189.6 MiB.
-		// This flag matches that template.
-		"--innodb-redo-log-capacity=8388608",
-		// The default flushes every commit to disk.
-		// Value 0 writes and flushes the redo log about once a second.
-		// The running MySQL server still returns the committed row.
-		// A crash can lose the last second. These tests do not reopen the data directory after a crash.
-		// 2000 autocommit inserts took a median of 6.7 ms versus 29.8 ms.
-		"--innodb-flush-log-at-trx-commit=0",
-		// fsync still asks the disk to store data pages at a checkpoint.
-		// nosync skips that flush. A crash can tear a page.
-		// 2000 autocommit inserts took a median of 26.5 ms versus 29.8 ms.
-		// With value 0, the pair took 7.1 ms versus 6.7 ms.
-		"--innodb-flush-method=nosync",
-		// Doublewrite stores each page twice so a crash cannot tear a page.
-		// These tests do not reopen the data directory after a crash.
-		// Initialize omits the 16 MiB doublewrite files.
-		// On this 48 GiB Mac the idle process used 196.3 MiB versus 254.3 MiB.
-		// 2000 autocommit inserts took a median of 86.6 ms versus 161.6 ms.
-		"--skip-innodb-doublewrite",
-		// MySQL 8.4 starts the event scheduler.
-		// These tests create no events.
-		// One run showed 34 threads versus 35.
-		// Resident memory was 253.8 MiB. The baseline spread was 253.2 MiB to 259.2 MiB.
-		"--event-scheduler=OFF",
+		// secure-file-priv limits file reads and writes to this directory.
+		// The directory is the test temp directory.
+		// Impact: the server cannot read host files outside that directory.
 		"--secure-file-priv="+dataRoot,
+		// log-error is the server error log in the test temp directory.
+		// The test prints the tail when the server fails to start.
+		// Impact: a failed start leaves the reason next to the test.
 		"--log-error="+logPath,
 	)
 	cmd := exec.Command(mysqld, runArgs...)
@@ -135,7 +123,7 @@ func startServer() (*server, error) {
 		os.RemoveAll(sockDir)
 		return nil, err
 	}
-	s := &server{
+	s := &Server{
 		cmd:     cmd,
 		log:     logFile,
 		sock:    sock,
@@ -148,19 +136,19 @@ func startServer() (*server, error) {
 		close(s.exited)
 	}()
 	if err := s.waitReady(); err != nil {
-		s.close()
+		s.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *server) dsn(db string) string {
+func (s *Server) DSN(db string) string {
 	return fmt.Sprintf("root@unix(%s)/%s?parseTime=true&charset=utf8mb4&timeout=5s", s.sock, db)
 }
 
-func (s *server) waitReady() error {
+func (s *Server) waitReady() error {
 	deadline := time.Now().Add(60 * time.Second)
-	dsn := s.dsn("")
+	dsn := s.DSN("")
 	for {
 		select {
 		case <-s.exited:
@@ -182,7 +170,7 @@ func (s *server) waitReady() error {
 	}
 }
 
-func (s *server) close() {
+func (s *Server) Close() {
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Signal(syscall.SIGTERM)
 		select {
@@ -198,7 +186,7 @@ func (s *server) close() {
 	os.RemoveAll(s.sockDir)
 }
 
-func (s *server) logTail() string {
+func (s *Server) logTail() string {
 	b, err := os.ReadFile(s.log.Name())
 	if err != nil {
 		return ""
@@ -207,6 +195,87 @@ func (s *server) logTail() string {
 		b = b[len(b)-4000:]
 	}
 	return string(b)
+}
+
+func locateDefaultsFile() (string, error) {
+	rel := os.Getenv("MYSQL_DEFAULTS_FILE")
+	if rel == "" {
+		return "", errors.New("MYSQL_DEFAULTS_FILE is empty. The test must receive tools/mysql/mysqld.cnf.")
+	}
+	return resolveRunfile(rel)
+}
+
+func variablesFromDefaults(text string) (map[string]string, map[string]string, error) {
+	want := map[string]string{}
+	hidden := map[string]string{}
+	for raw := range strings.SplitSeq(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "[") {
+			continue
+		}
+		key, value, hasValue := strings.Cut(line, "=")
+		key = strings.ReplaceAll(strings.TrimSpace(key), "-", "_")
+		if !validOptionName(key) {
+			return nil, nil, fmt.Errorf("option name %q is not a MySQL name", key)
+		}
+		switch key {
+		case "skip_log_bin", "skip_performance_schema", "skip_innodb_doublewrite", "skip_networking":
+			if hasValue {
+				return nil, nil, fmt.Errorf("option %s takes no value", key)
+			}
+		default:
+			if !hasValue {
+				return nil, nil, fmt.Errorf("option %s has no value", key)
+			}
+		}
+		varName, varValue, shown := showVariable(key, strings.TrimSpace(value))
+		if !shown {
+			if _, ok := hidden[key]; ok {
+				return nil, nil, fmt.Errorf("option %s is repeated", key)
+			}
+			hidden[key] = strings.TrimSpace(value)
+			continue
+		}
+		if _, ok := want[varName]; ok {
+			return nil, nil, fmt.Errorf("option %s is repeated", varName)
+		}
+		want[varName] = varValue
+	}
+	if len(want) == 0 {
+		return nil, nil, errors.New("defaults file has no options")
+	}
+	return want, hidden, nil
+}
+
+func showVariable(key, value string) (string, string, bool) {
+	switch key {
+	case "skip_log_bin":
+		return "log_bin", "OFF", true
+	case "skip_performance_schema":
+		return "performance_schema", "OFF", true
+	case "skip_innodb_doublewrite":
+		return "innodb_doublewrite", "OFF", true
+	case "skip_networking":
+		return "skip_networking", "ON", true
+	case "mysqlx":
+		// MySQL 8.4.13 has no system variable named mysqlx.
+		// SHOW VARIABLES LIKE 'mysqlx' returns no row when the server is started with mysqlx=OFF.
+		return "", "", false
+	default:
+		return key, value, true
+	}
+}
+
+func validOptionName(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func locateMysqld() (string, error) {
@@ -306,13 +375,6 @@ func pathFromManifest(rel, manifest string) (string, error) {
 		return strings.TrimRight(right[:len(right)-len(rest)], `/\`), nil
 	}
 	return "", fmt.Errorf("runfiles has no %s", rel)
-}
-
-func TestPathFromManifestFindsDirectory(t *testing.T) {
-	manifest := "repo/tools/mysql/datadir/mysql/row /tmp/x/mysql/row\n"
-	got, err := pathFromManifest("repo/tools/mysql/datadir", manifest)
-	require.NoError(t, err)
-	assert.Equal(t, "/tmp/x", got)
 }
 
 func serverEnv(base string) []string {

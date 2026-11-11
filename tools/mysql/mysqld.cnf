@@ -1,0 +1,78 @@
+# Tuning flags for the test mysqld.
+# The data-directory action and the test server both use this file.
+# --defaults-file is the first argument, so MySQL reads no host option file.
+
+[mysqld]
+
+# What: open no TCP port.
+# Why: each test connects on a unix socket.
+# Impact: tests do not share one TCP port.
+skip_networking
+
+# What: do not start the X plugin.
+# Why: these tests use the classic MySQL protocol.
+# Impact: the server opens no X plugin port. Memory was not measured.
+mysqlx=OFF
+
+# What: do not write a binary log.
+# Why: these tests do not replicate.
+# Impact: not measured. The server writes no binary log.
+skip_log_bin
+
+# What: do not collect Performance Schema data.
+# Why: these tests do not query Performance Schema tables.
+# One test reads the performance_schema variable.
+# Impact: not measured here. The server skips those instruments.
+skip_performance_schema
+
+# What: InnoDB buffer pool. The default is 128 MiB. This value is 32 MiB.
+# Why: these tests read a few rows.
+# A 16 MiB pool took a median of 286.8 ms for 2000 autocommit inserts.
+# Impact: on this 48 GiB Mac the idle process used 246.2 MiB versus 254.3 MiB.
+# Those inserts took a median of 83.2 ms versus 161.6 ms.
+innodb_buffer_pool_size=33554432
+
+# What: InnoDB log buffer. The default is 64 MiB. This value is 8 MiB.
+# Why: an 8 MiB buffer holds these transactions.
+# Impact: idle process used 198.3 MiB versus 254.3 MiB.
+innodb_log_buffer_size=8388608
+
+# What: redo log capacity. The default is 100 MiB. This value is 8 MiB.
+# 8 MiB is the minimum.
+# Why: initialize stores this log in the template.
+# The server uses the same capacity. Startup does not resize the log.
+# Impact: this change alone made the template 97.6 MiB versus 189.6 MiB.
+# Initialize warns that the log is full, and the action still finishes.
+# The template test requires the redo files to stay under 20 MiB.
+innodb_redo_log_capacity=8388608
+
+# What: redo flush timing. The default is 1. This value is 0.
+# Why: value 0 writes and flushes the redo log about once a second.
+# The running server still returns the committed row.
+# A crash can lose the last second.
+# These tests do not open the data directory after a crash.
+# Impact: 2000 autocommit inserts took a median of 6.7 ms versus 29.8 ms.
+innodb_flush_log_at_trx_commit=0
+
+# What: checkpoint flush method. nosync skips the data-page flush.
+# Why: a crash can tear a page.
+# These tests do not open the data directory after a crash.
+# The MySQL manual calls nosync unsupported and for tests.
+# Impact: 2000 autocommit inserts took a median of 26.5 ms versus 29.8 ms.
+# With value 0, the pair took 7.1 ms versus 6.7 ms.
+innodb_flush_method=nosync
+
+# What: page doublewrite. This option stores each page once.
+# Why: these tests do not open the data directory after a crash.
+# A crash can tear a page.
+# Impact: initialize omits the 16 MiB doublewrite files.
+# On this 48 GiB Mac the idle process used 196.3 MiB versus 254.3 MiB.
+# 2000 autocommit inserts took a median of 86.6 ms versus 161.6 ms.
+skip_innodb_doublewrite
+
+# What: event scheduler. MySQL 8.4 starts it. This value is OFF.
+# Why: these tests create no events.
+# Impact: one run showed 34 threads versus 35.
+# Resident memory was 253.8 MiB.
+# The baseline spread was 253.2 MiB to 259.2 MiB.
+event_scheduler=OFF
