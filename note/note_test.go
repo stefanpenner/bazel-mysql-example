@@ -46,6 +46,8 @@ func TestMain(m *testing.M) {
 		os.Exit(runTryStop())
 	case "idleprobe":
 		os.Exit(runIdleProbe())
+	case "sleep":
+		os.Exit(runSleep())
 	case "":
 	default:
 		fmt.Fprintf(os.Stderr, "unknown MYSQL_ROLE %q\n", os.Getenv("MYSQL_ROLE"))

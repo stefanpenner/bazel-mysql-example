@@ -187,12 +187,17 @@ func runLive(root, id string) (bool, error) {
 	runDir := filepath.Join(root, id)
 	if !supervisorAlive(runDir) {
 		info, err := readServerInfo(filepath.Join(runDir, "server.txt"))
-		if err == nil {
-			if err := stopIfOurs(info); err != nil {
-				return false, err
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				os.RemoveAll(runDir)
+				return false, nil
 			}
+			return false, err
 		}
-		if err != nil || !processAlive(info.mysqldPid) {
+		if err := stopIfOurs(info); err != nil {
+			return false, err
+		}
+		if !processAlive(info.mysqldPid) {
 			os.RemoveAll(runDir)
 		}
 		return false, nil
@@ -554,6 +559,11 @@ func runIdleProbe() int {
 	return 0
 }
 
+func runSleep() int {
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	return 0
+}
+
 func shareRoot() (string, error) {
 	if v := os.Getenv("MYSQL_SHARE_ROOT"); v != "" {
 		if err := mkdir0700(v); err != nil {
@@ -825,7 +835,8 @@ func stopIfOurs(info serverInfo) error {
 		return nil
 	}
 	got, ok := queryDatadir(info.sock)
-	if ok && !samePath(got, info.dataDir) {
+	// Both checks must succeed. A failed query is not a match.
+	if !ok || !samePath(got, info.dataDir) {
 		return nil
 	}
 	return stopPid(info.mysqldPid)

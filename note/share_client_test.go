@@ -233,6 +233,52 @@ func TestUnhealthyLiveServerIsAnError(t *testing.T) {
 	}
 }
 
+func TestBadServerFileIsAnError(t *testing.T) {
+	root := shortRoot(t)
+	id := "0123456789abcdef"
+	runDir := filepath.Join(root, id)
+	require.NoError(t, os.MkdirAll(runDir, 0700))
+	path := filepath.Join(runDir, "server.txt")
+	require.NoError(t, os.WriteFile(path, []byte("nope\n"), 0600))
+	_, err := runLive(root, id)
+	if err == nil || !strings.Contains(err.Error(), "server.txt") {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatal("deleted a server.txt that it could not parse")
+	}
+}
+
+func TestStopRefusesWhenDatadirQueryFails(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	dataDir := filepath.Join(shortRoot(t), "data")
+	cmd := exec.Command(exe, "--datadir="+dataDir)
+	cmd.Env = putEnv(os.Environ(), "MYSQL_ROLE", "sleep")
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		stdin.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	})
+	info := serverInfo{
+		sock:          filepath.Join(dataDir, "missing.sock"),
+		dataDir:       dataDir,
+		mysqldPath:    exe,
+		mysqldPid:     cmd.Process.Pid,
+		supervisorPid: 1,
+		mysqlHash:     "0123456789abcdef",
+	}
+	require.NoError(t, stopIfOurs(info))
+	if !processAlive(cmd.Process.Pid) {
+		t.Fatal("stop killed a process whose datadir query failed")
+	}
+}
+
 func TestDeadSupervisorDoesNotKillUnrelatedPid(t *testing.T) {
 	root := shortRoot(t)
 	id := "0123456789abcdef"
