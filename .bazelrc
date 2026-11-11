@@ -1,0 +1,10 @@
+# Bazel 9 has one module system. Do not set --enable_bzlmod.
+
+common --enable_runfiles
+common --lockfile_mode=error
+
+test --test_output=errors
+test --test_summary=terse
+
+# Local flags. This file is not in git.
+try-import %workspace%/.bazelrc.user

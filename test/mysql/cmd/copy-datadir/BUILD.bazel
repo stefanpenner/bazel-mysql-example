@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "copy-datadir_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/stefanpenner/bazel-mysql/test/mysql/cmd/copy-datadir",
+    visibility = ["//visibility:private"],
+    deps = ["//test/mysql"],
+)
+
+go_binary(
+    name = "copy-datadir",
+    embed = [":copy-datadir_lib"],
+    visibility = ["//visibility:public"],
+)

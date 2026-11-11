@@ -1,0 +1,30 @@
+# Convenience symlinks. Bazel names them from the workspace directory.
+# This covers bazel-bin, bazel-out, bazel-testlogs, and the workspace link.
+# TEST_TMPDIR for a Bazel test is under bazel-out.
+# https://github.com/github/gitignore/blob/main/community/Bazel.gitignore
+/bazel-*
+
+# MySQL test files. The test writes the data directory under TEST_TMPDIR.
+# The socket directory is /tmp/bzmysql* and that path is outside this repo.
+# Ignore the same names if a run writes them in the workspace.
+bzmysql*/
+*.sock
+mysql.pid
+mysql.err
+
+# Local Bazel flags. .bazelrc imports this file when it exists.
+.bazelrc.user
+
+# Editor project files.
+.idea/
+.ijwb/
+.aswb/
+.clwb/
+
+# Go test binary and coverage output.
+*.test
+*.out
+go.work
+go.work.sum
+
+.DS_Store
