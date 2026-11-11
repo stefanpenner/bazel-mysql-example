@@ -6,5 +6,8 @@ common --lockfile_mode=error
 test --test_output=errors
 test --test_summary=terse
 
+# This config shares one local mysqld. The default stays one private server.
+test:mysql_share --test_env=MYSQL_SHARE=1
+
 # Local flags. This file is not in git.
 try-import %workspace%/.bazelrc.user

@@ -35,14 +35,36 @@ func TestDatadirCopyIsPrivate(t *testing.T) {
 var srv *server
 
 func TestMain(m *testing.M) {
+	switch os.Getenv("MYSQL_ROLE") {
+	case "supervisor":
+		os.Exit(runSupervisor())
+	case "watch":
+		os.Exit(runWatch())
+	case "hold":
+		os.Exit(runHold())
+	case "trystop":
+		os.Exit(runTryStop())
+	case "idleprobe":
+		os.Exit(runIdleProbe())
+	case "":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown MYSQL_ROLE %q\n", os.Getenv("MYSQL_ROLE"))
+		os.Exit(2)
+	}
 	var err error
-	srv, err = startServer()
+	if os.Getenv("MYSQL_SHARE") == "1" {
+		srv, err = attachShared()
+	} else {
+		srv, err = startServer()
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	code := m.Run()
-	srv.close()
+	if srv.owned {
+		srv.close()
+	}
 	os.Exit(code)
 }
 
@@ -127,6 +149,14 @@ func TestDataDirectoryTemplateIsSmall(t *testing.T) {
 func openStore(t *testing.T) *note.Store {
 	t.Helper()
 	t.Parallel()
+	if !srv.owned {
+		return openSharedStore(t)
+	}
+	return openPrivateStore(t)
+}
+
+func openPrivateStore(t *testing.T) *note.Store {
+	t.Helper()
 	name := dbName(t.Name())
 	admin, err := sql.Open("mysql", srv.dsn(""))
 	require.NoError(t, err)
@@ -136,6 +166,22 @@ func openStore(t *testing.T) *note.Store {
 	require.NoError(t, err)
 
 	s, err := note.Open(t.Context(), srv.dsn(name))
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func openSharedStore(t *testing.T) *note.Store {
+	t.Helper()
+	admin, err := sql.Open("mysql", srv.dsn(""))
+	require.NoError(t, err)
+	t.Cleanup(func() { admin.Close() })
+
+	db, user, pass, err := grantTenant(admin, t.Name())
+	require.NoError(t, err)
+	t.Cleanup(func() { dropTenant(t, admin, db, user) })
+
+	s, err := note.Open(t.Context(), userDSN(srv.sock, user, pass, db))
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	return s

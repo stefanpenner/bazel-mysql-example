@@ -32,6 +32,15 @@ type server struct {
 	dataDir string
 	exited  chan struct{}
 	exitErr error
+	// owned is false when this process joined a shared mysqld.
+	// TestMain calls close only when owned is true.
+	owned bool
+	// shareHold keeps the shared clients.lock open.
+	// The os.File finalizer closes a file that no variable owns, and the lock drops.
+	shareHold     *os.File
+	mysqldPid     int
+	supervisorPid int
+	runDir        string
 }
 
 func startServer() (*server, error) {
@@ -67,22 +76,45 @@ func startServer() (*server, error) {
 		return nil, err
 	}
 
-	args := []string{
-		"--no-defaults",
-		"--basedir=" + base,
-		"--datadir=" + dataDir,
-	}
-	if plugin := pluginDir(base); plugin != "" {
-		args = append(args, "--plugin-dir="+plugin)
-	}
-	if os.Geteuid() == 0 {
-		args = append(args, "--user=root")
-	}
 	env := serverEnv(base)
+	runArgs := mysqldArgs(base, dataDir, sock, pidFile, logPath, dataRoot)
+	cmd := exec.Command(mysqld, runArgs...)
+	cmd.Env = env
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		os.RemoveAll(sockDir)
+		return nil, err
+	}
+	s := &server{
+		cmd:     cmd,
+		log:     logFile,
+		sock:    sock,
+		sockDir: sockDir,
+		dataDir: dataDir,
+		exited:  make(chan struct{}),
+		owned:   true,
+	}
+	go func() {
+		s.exitErr = cmd.Wait()
+		close(s.exited)
+	}()
+	if err := s.waitReady(); err != nil {
+		s.close()
+		return nil, err
+	}
+	return s, nil
+}
 
-	runArgs := append(append([]string{}, args...),
-		"--socket="+sock,
-		"--pid-file="+pidFile,
+func (s *server) dsn(db string) string {
+	return rootSocketDSN(s.sock, db)
+}
+
+// stableFlags is the server configuration that both the private server and the shared server use.
+// The mysql hash covers these flags. A flag change starts a new shared server.
+func stableFlags() []string {
+	return []string{
 		"--skip-networking",
 		"--mysqlx=OFF",
 		"--skip-log-bin",
@@ -123,39 +155,31 @@ func startServer() (*server, error) {
 		// One run showed 34 threads versus 35.
 		// Resident memory was 253.8 MiB. The baseline spread was 253.2 MiB to 259.2 MiB.
 		"--event-scheduler=OFF",
-		"--secure-file-priv="+dataRoot,
-		"--log-error="+logPath,
-	)
-	cmd := exec.Command(mysqld, runArgs...)
-	cmd.Env = env
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
-		os.RemoveAll(sockDir)
-		return nil, err
 	}
-	s := &server{
-		cmd:     cmd,
-		log:     logFile,
-		sock:    sock,
-		sockDir: sockDir,
-		dataDir: dataDir,
-		exited:  make(chan struct{}),
-	}
-	go func() {
-		s.exitErr = cmd.Wait()
-		close(s.exited)
-	}()
-	if err := s.waitReady(); err != nil {
-		s.close()
-		return nil, err
-	}
-	return s, nil
 }
 
-func (s *server) dsn(db string) string {
-	return fmt.Sprintf("root@unix(%s)/%s?parseTime=true&charset=utf8mb4&timeout=5s", s.sock, db)
+func mysqldArgs(base, dataDir, sock, pidFile, logPath, secureRoot string) []string {
+	args := []string{
+		"--no-defaults",
+		"--basedir=" + base,
+		"--datadir=" + dataDir,
+	}
+	if plugin := pluginDir(base); plugin != "" {
+		args = append(args, "--plugin-dir="+plugin)
+	}
+	if os.Geteuid() == 0 {
+		args = append(args, "--user=root")
+	}
+	args = append(args,
+		"--socket="+sock,
+		"--pid-file="+pidFile,
+	)
+	args = append(args, stableFlags()...)
+	args = append(args,
+		"--secure-file-priv="+secureRoot,
+		"--log-error="+logPath,
+	)
+	return args
 }
 
 func (s *server) waitReady() error {
@@ -183,19 +207,31 @@ func (s *server) waitReady() error {
 }
 
 func (s *server) close() {
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Signal(syscall.SIGTERM)
-		select {
-		case <-s.exited:
-		case <-time.After(10 * time.Second):
-			_ = s.cmd.Process.Kill()
-			<-s.exited
-		}
-	}
+	s.stopProcess()
 	if s.log != nil {
 		s.log.Close()
+		s.log = nil
 	}
-	os.RemoveAll(s.sockDir)
+	if s.sockDir != "" {
+		os.RemoveAll(s.sockDir)
+	}
+}
+
+func (s *server) stopProcess() {
+	if s == nil || s.cmd == nil || s.cmd.Process == nil {
+		return
+	}
+	_ = s.cmd.Process.Signal(syscall.SIGTERM)
+	if s.exited == nil {
+		_ = s.cmd.Process.Kill()
+		return
+	}
+	select {
+	case <-s.exited:
+	case <-time.After(10 * time.Second):
+		_ = s.cmd.Process.Kill()
+		<-s.exited
+	}
 }
 
 func (s *server) logTail() string {

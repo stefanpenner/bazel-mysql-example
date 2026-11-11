@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sharespec",
+    srcs = ["spec.go"],
+    importpath = "github.com/stefanpenner/bazel-mysql/spec/share_gen",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "sharespec_test",
+    timeout = "short",
+    srcs = [
+        "invariant_test.go",
+        "spec_test.go",
+    ],
+    embed = [":sharespec"],
+)

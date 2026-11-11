@@ -14,9 +14,12 @@ mysql_go_test(
     srcs = [
         "note_test.go",
         "server_test.go",
+        "share_test.go",
+        "share_client_test.go",
     ],
     deps = [
         ":note",
+        "//spec/share_gen:sharespec",
         "//test/mysql",
         "@com_github_go_sql_driver_mysql//:mysql",
         "@com_github_stretchr_testify//assert",

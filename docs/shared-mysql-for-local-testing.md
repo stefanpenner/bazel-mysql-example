@@ -2,7 +2,7 @@
 
 One `bazel test` command on a Mac can share one `mysqld`.
 Each test target stays a separate Bazel result.
-This design is not in the code yet.
+The code is in `note/share_test.go`.
 Today, each test binary starts one private `mysqld`.
 
 The private server stays the default.
@@ -12,13 +12,20 @@ A test shares `mysqld` only when `MYSQL_SHARE=1`.
 bazel test --config=mysql_share //...
 ```
 
+Put this line in `.bazelrc`.
+
+```text
+test:mysql_share --test_env=MYSQL_SHARE=1
+```
+
+Do not put `MYSQL_SHARE` on the default test line.
 The config sets `--test_env=MYSQL_SHARE=1`.
 Bazel makes a UUID for each command.
 Bazel does not copy that UUID into the test.
 `TEST_TMPDIR` is a different directory for each test action.
 A test action is one program Bazel runs for one test target.
-The first test in the command creates the run id.
-Later tests in that command read the same run id from `current`.
+A test creates the run id only when `current` does not name a live server.
+Other tests read that run id from `current`.
 
 ## Why this is local
 
@@ -58,6 +65,7 @@ The first test starts the supervisor and the watch process.
 Both call `setsid`.
 `launchd` becomes the parent.
 The supervisor starts `mysqld` as its child.
+The supervisor starts with the lock files closed.
 The watch process and the supervisor share a pipe.
 
 The macOS sandbox can stay at its default.
@@ -72,19 +80,25 @@ The child could still write a file under `/tmp`.
 
 ## Directory
 
-Every test builds the same directory from the mysql hash and the run id.
+Every test builds one directory from the workspace, the mysql hash, and the run id.
 
 ```text
-/tmp/bzmysql/<mysql-hash>/
+/tmp/bzmysql/<workspace-hash>/<mysql-hash>/
   start.lock
   current
   <run-id>/
     clients.lock
+    supervisor.lock
     server.txt
     s.sock
     data/
 ```
 
+The workspace hash is 16 hex characters from the Bazel output base path.
+Bazel names that path from the workspace path.
+A sandboxed test skips the per-action sandbox directory.
+The mysql hash is 16 hex characters.
+The run id is 16 hex characters.
 The mysql hash covers three inputs:
 
 - the bytes of the `mysqld` file
@@ -94,31 +108,42 @@ The mysql hash covers three inputs:
 `current` names the live run id.
 The first test writes `current` when no server is live.
 `server.txt` holds the socket path, the pids, and the mysql hash.
+The supervisor holds `supervisor.lock` until it exits.
+A test that takes that lock sees a dead supervisor.
+The directory mode is `0700`.
+Another account on the machine cannot open the socket.
 
 `mysqld` must use the real MySQL install path.
 Bazel deletes the test sandbox directory when the test ends.
 A path inside that directory disappears with the test.
 The socket and the data directory stay under `/tmp`.
-The socket path must have fewer than 104 bytes.
-macOS rejects a longer Unix socket path.
+The socket path is `/tmp/bzmysql/<16 hex>/<16 hex>/<16 hex>/s.sock`.
+That path is 70 bytes.
+macOS rejects a Unix socket path of 104 bytes or more.
 
 ## How a test connects
 
-1. The test locks `start.lock`.
-2. The test reads `server.txt`.
-3. If the recorded pid is dead, the test starts the supervisor.
-4. If the mysql hash differs, the test starts the supervisor.
-5. The test waits for a socket that accepts a connection.
-6. The test unlocks `start.lock`.
-7. The test holds a shared lock on `clients.lock` until the test exits.
-8. The supervisor must close that lock before it starts `mysqld`.
-9. The test connects to the socket in `server.txt`.
-10. As `root`, the test creates one database and one user.
-11. The database name includes the import path and the full test name.
-12. The database name also has a random suffix.
-13. The store connects as that user.
-14. On exit, the test drops that database and that user.
-15. The kernel releases the shared lock when the test process exits.
+The test locks `start.lock`.
+The test reads `current`.
+
+If `current` names a live server, the test uses that run id.
+If `current` does not name a live server, the test does these steps.
+
+1. The test writes a new run id to `current`.
+2. The test starts the supervisor.
+3. The supervisor copies the template into `data/` once.
+4. The test waits for a socket that accepts a connection.
+
+The test takes a shared lock on `clients.lock`.
+The test then unlocks `start.lock`.
+The test holds that shared lock until the test exits.
+The test connects to the socket in `server.txt`.
+As `root`, the test creates one database and one user.
+The database name is a hash of the program path, the full test name, and a random suffix.
+The user name is a hash of those same three values.
+The store connects as that user.
+On exit, the test drops that database and that user.
+The kernel releases the shared lock when the test process exits.
 
 The user has all rights on that database only.
 The user does not get these rights:
@@ -149,11 +174,19 @@ Temp tables, transactions, and user variables stay on one connection.
 
 ## How the server stops
 
-The supervisor waits until no test holds `clients.lock`.
+The supervisor takes an exclusive lock on `clients.lock`.
+That lock means no test holds the file.
+The supervisor releases the lock.
 The supervisor waits one minute.
 The supervisor tries the exclusive lock again.
-If that lock succeeds, the supervisor sends `SIGTERM` to `mysqld`.
-The supervisor deletes the directory and exits.
+If a test holds the lock, the supervisor starts again.
+If the lock succeeds, the supervisor tries `start.lock` without waiting.
+If a test holds `start.lock`, the supervisor releases `clients.lock` and starts again.
+If both locks succeed, the supervisor deletes `current` when it names this run.
+The supervisor releases both locks.
+The supervisor sends `SIGTERM` to `mysqld`.
+If `mysqld` ignores `SIGTERM` for 10 seconds, the supervisor sends `SIGKILL`.
+The supervisor deletes the run directory and exits.
 
 One minute must be longer than the pause between tests in one command.
 A shorter wait stops `mysqld` while that command still has tests.
@@ -202,7 +235,9 @@ The `local` strategy does not use a PID namespace.
 The process wrapper still sends that `SIGKILL`.
 No sandbox flag stops that kill.
 
-On Linux, each test binary keeps a private `mysqld`.
+On Linux, a test does not start the supervisor.
+If `current` names a live server, the test connects to that server.
+If `current` does not name a live server, the test starts a private `mysqld`.
 
 A shared server on Linux needs an owner that is not a child of the test.
 That owner starts `mysqld` and writes `current`.
