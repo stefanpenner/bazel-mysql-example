@@ -4,7 +4,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 # gazelle:map_kind go_test go_test @rules_go//go:def.bzl
 
 go_library(
-    name = "mysql",
+    name = "copy",
     srcs = [
         # Gazelle drops a file whose name or build tag names an OS.
         "clone_darwin.go",  # keep
@@ -12,14 +12,14 @@ go_library(
         "clone_other.go",  # keep
         "copy.go",
     ],
-    importpath = "github.com/stefanpenner/bazel-mysql/test/mysql",
+    importpath = "github.com/stefanpenner/bazel-mysql/tools/mysql/copy",
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "mysql_test",
+    name = "copy_test",
     srcs = ["copy_test.go"],
-    embed = [":mysql"],
+    embed = [":copy"],
     deps = [
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",

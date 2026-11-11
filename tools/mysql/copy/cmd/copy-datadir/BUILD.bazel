@@ -3,9 +3,9 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library")
 go_library(
     name = "copy-datadir_lib",
     srcs = ["main.go"],
-    importpath = "github.com/stefanpenner/bazel-mysql/test/mysql/cmd/copy-datadir",
+    importpath = "github.com/stefanpenner/bazel-mysql/tools/mysql/copy/cmd/copy-datadir",
     visibility = ["//visibility:private"],
-    deps = ["//test/mysql"],
+    deps = ["//tools/mysql/copy"],
 )
 
 go_binary(

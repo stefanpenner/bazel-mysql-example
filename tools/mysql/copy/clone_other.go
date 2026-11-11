@@ -1,6 +1,6 @@
 //go:build !darwin && !linux
 
-package mysql
+package copy
 
 func cloneTree(src, dst string) error {
 	return errNoClone

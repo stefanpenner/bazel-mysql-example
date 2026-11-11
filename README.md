@@ -92,7 +92,7 @@ only the mysql_linux_amd64.
    The copy is a clone when the disk supports a clone, to reduce waste.
    If the disk does not support a clone, the test copies
    every file.
-   `copy-datadir` in `test/mysql` does this copy.
+   `copy-datadir` in `tools/mysql/copy` does this copy.
 
 ```
 runfiles                          TEST_TMPDIR
@@ -114,10 +114,10 @@ An APFS clone took 25 ms and wrote 0.2 MB.
 [Files for the test](tools/mysql/defs.bzl#L6-L10)
 [Find mysqld](note/server_test.go#L212-L230)
 [Copy into TEST_TMPDIR](note/server_test.go#L43-L56)
-[Clone or full copy](test/mysql/copy.go#L35-L51)
-[macOS clone](test/mysql/clone_darwin.go#L21-L29)
-[Linux clone](test/mysql/clone_linux.go#L14-L52)
-[copy-datadir](test/mysql/cmd/copy-datadir/main.go#L10-L14)
+[Clone or full copy](tools/mysql/copy/copy.go#L35-L51)
+[macOS clone](tools/mysql/copy/clone_darwin.go#L21-L29)
+[Linux clone](tools/mysql/copy/clone_linux.go#L14-L52)
+[copy-datadir](tools/mysql/copy/cmd/copy-datadir/main.go#L10-L14)
 
 3. Set test flags on the MySQL server.
    The tests do not read Performance Schema.

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/stefanpenner/bazel-mysql/test/mysql"
+	"github.com/stefanpenner/bazel-mysql/tools/mysql/copy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +50,7 @@ func startServer() (*server, error) {
 		return nil, err
 	}
 	// The template is shared. The copy is a new file, so a test cannot write the template.
-	if err := mysql.CopyDatadir(template, dataDir); err != nil {
+	if err := copy.CopyDatadir(template, dataDir); err != nil {
 		os.RemoveAll(dataDir)
 		return nil, err
 	}

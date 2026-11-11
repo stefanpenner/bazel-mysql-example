@@ -1,3 +1,5 @@
+# gazelle:ignore
+
 load(":toolchain.bzl", "current_mysql", "declare_mysql_toolchains", "mysql_datadir")
 
 toolchain_type(

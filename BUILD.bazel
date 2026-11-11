@@ -3,7 +3,6 @@ load("@gazelle//:def.bzl", "gazelle", "gazelle_test")
 # gazelle:prefix github.com/stefanpenner/bazel-mysql
 # gazelle:map_kind go_test mysql_go_test //tools/mysql:defs.bzl
 # gazelle:build_tags bazel
-# gazelle:exclude tools
 
 gazelle(name = "gazelle")
 

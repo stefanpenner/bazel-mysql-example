@@ -1,6 +1,6 @@
-// Package mysql copies a MySQL data directory for a test.
+// Package copy copies a MySQL data directory for a test.
 // The copy is a new tree. The source stays unchanged.
-package mysql
+package copy
 
 import (
 	"errors"
