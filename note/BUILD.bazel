@@ -19,7 +19,6 @@ mysql_go_test(
     ],
     deps = [
         ":note",
-        "//spec/share_gen:sharespec",
         "//test/mysql",
         "@com_github_go_sql_driver_mysql//:mysql",
         "@com_github_stretchr_testify//assert",

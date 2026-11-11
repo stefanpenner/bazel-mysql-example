@@ -23,7 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stefanpenner/bazel-mysql/spec/share_gen"
 	"github.com/stefanpenner/bazel-mysql/test/mysql"
 )
 
@@ -502,20 +501,7 @@ func acquireStopLocks(root, id string) (string, *os.File, *os.File, error) {
 }
 
 func stopAllowed(startFree, holdersEmpty bool) bool {
-	s := sharespec.State{
-		StartLock:  "none",
-		Holders:    map[string]bool{},
-		Server:     "up",
-		Current:    "run",
-		Supervisor: "grace",
-	}
-	if !startFree {
-		s.StartLock = "t"
-	}
-	if !holdersEmpty {
-		s.Holders["t"] = true
-	}
-	return s.CanStop()
+	return startFree && holdersEmpty
 }
 
 func runHold() int {

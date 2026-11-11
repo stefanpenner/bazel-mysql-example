@@ -47,9 +47,9 @@ func TestSupervisorStartRefusesOtherOS(t *testing.T) {
 	}
 }
 
-func TestStopAllowedMatchesSpec(t *testing.T) {
+func TestStopAllowed(t *testing.T) {
 	if !stopAllowed(true, true) {
-		t.Fatal("free grace must stop")
+		t.Fatal("a free start lock and no holder must stop")
 	}
 	if stopAllowed(false, true) {
 		t.Fatal("start.lock must block stop")
