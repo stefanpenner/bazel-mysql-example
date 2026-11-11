@@ -2,7 +2,7 @@
 
 ## What & Why
 
-An integration test reasonable requires MySQL, but using MySQL
+An integration test reasonably requires MySQL, but using MySQL
 and bazel isn't entirely straightforward, this repo describes a
 reasonable approach that combines both bazel integration & tuning for mysql as
 one example.
