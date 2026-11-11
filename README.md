@@ -1,5 +1,43 @@
 # bazel & mysql
 
+## How to use
+
+Run the tests in this repo.
+
+```
+bazel test //...
+```
+
+Bazel fetches the MySQL archive for the platform where the test runs.
+
+A Go test that needs MySQL uses `mysql_go_test`.
+
+[Test rule](tools/mysql/defs.bzl#L3-L21)
+
+Gazelle writes that rule for a `go_test`.
+
+[Gazelle map](BUILD.bazel#L4-L4)
+
+The rule sets `MYSQLD` and `MYSQL_DATADIR`.
+
+`MYSQLD` names the `mysqld` binary for this platform.
+`MYSQL_DATADIR` names the data directory template.
+
+Start one server for the test binary.
+
+1. Read `MYSQLD` and `MYSQL_DATADIR`.
+2. Copy the template into `TEST_TMPDIR`.
+3. Start `mysqld`.
+4. Create one database for each test.
+
+The `note` package does these steps.
+
+[Start the server](note/server_test.go#L37-L155)
+[One server per binary](note/note_test.go#L37-L46)
+[One database per test](note/note_test.go#L128-L142)
+
+## What & Why
+
 An integration test reasonable requires MySQL, but using MySQL
 and bazel isn't entirely straightforward, this repo describes a
 reasonable approach.
@@ -48,9 +86,10 @@ only the mysql_linux_amd64.
 2. Copy a data directory for each test that needs it's own MySQL.
    Runfiles are the read-only files Bazel gives to the test.
    The MySQL server files are runfiles.
+   The MySql server requires a writable data directory.
    Bazel sets `TEST_TMPDIR` to a private writable directory.
-   The test copies the data directory into `TEST_TMPDIR`.
-   The copy is a clone when the disk supports a clone.
+   The test copies the data directory into `TEST_TMPDIR` for the MySQL process to use.
+   The copy is a clone when the disk supports a clone, to reduce waste.
    If the disk does not support a clone, the test copies
    every file.
    `copy-datadir` in `test/mysql` does this copy.
@@ -94,18 +133,23 @@ flush each commit               flush_log_at_trx_commit=0
 checkpoint fsync                flush_method=nosync
 ```
 
-Impact. Each row is a separate measurement on this 48 GiB Mac.
-A time is the median of 2000 autocommit inserts.
+Impact. On this 48 GiB Mac, all of these flags together versus MySQL defaults.
+The disk cache was warm.
+A startup time is the median of 5 runs.
+An insert time is the median of 7 runs.
 
-| Solution | before | after |
+| | MySQL default | test flags |
 | --- | --- | --- |
-| Performance Schema off | idle 499.5 MiB | idle 258.4 MiB |
-| doublewrite off | idle 254.3 MiB | idle 196.3 MiB |
-| doublewrite off | 161.6 ms | 86.6 ms |
-| commit flush 0, fsync held | 29.8 ms | 6.7 ms |
-| nosync, commit flush 2 held | 29.8 ms | 26.5 ms |
-| commit flush 0 and nosync | 6.7 ms | 7.1 ms |
-| binary log off | not measured | not measured |
+| data directory | 190 MiB | 82 MiB |
+| idle memory | 499.5 MiB | 138.3 MiB |
+| memory after 2000 inserts | 520.5 MiB | 149.5 MiB |
+| server accepts a connection | 368 ms | 320 ms |
+| 2000 autocommit inserts | 184 ms | 47 ms |
+
+The test server uses 361 MiB less memory while it is idle.
+2000 inserts take 47 ms instead of 184 ms.
+The server accepts a connection in 320 ms instead of 368 ms.
+A small test, 10 inserts and one read, takes about 1 ms either way.
 
 [Test server flags](note/server_test.go#L83-L128)
 [Data directory flags](tools/mysql/toolchain.bzl#L72-L76)
