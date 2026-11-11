@@ -111,7 +111,7 @@ a full copy took 82 ms and wrote 190 MB.
 An APFS clone took 25 ms and wrote 0.2 MB.
 
 [Marker](tools/mysql/toolchain.bzl#L25-L36)
-[Files for the test](tools/mysql/defs.bzl#L6-L12)
+[Files for the test](tools/mysql/defs.bzl#L13-L19)
 [Find mysqld](tools/mysql/server/server.go#L281-L299)
 [Copy into TEST_TMPDIR](tools/mysql/server/server.go#L39-L52)
 [Clone or full copy](tools/mysql/copy/copy.go#L35-L51)
@@ -146,3 +146,39 @@ An APFS clone took 25 ms and wrote 0.2 MB.
 [Pass the file to the test server](tools/mysql/server/server.go#L72-L116)
 [Pass the file to initialize](tools/mysql/toolchain.bzl#L81-L86)
 [Read the variables](tools/mysql/server/server_test.go#L60-L83)
+
+4. Limit how many MySQL test targets run at the same time.
+   Each `mysql_go_test` is one test binary.
+   That binary starts one `mysqld`.
+   Bazel has one CPU pool and one RAM pool.
+   The CPU pool is the number of logical cores.
+   The RAM pool is 67 percent of host RAM, in MB.
+
+   `size` `medium` asks for 100 MB and 1 core.
+   `mysql_go_test` does not set `size`.
+   The macro adds `cpu:1` and `resources:memory:512`.
+   Bazel starts the test only when both numbers fit.
+
+```
+pool                          each MySQL test
+-------------------------     ----------------------
+logical cores                 cpu:1
+67 percent of RAM, in MB      512 MB
+```
+
+Impact. On this Mac the pools are 14 cores and 32932 MB.
+The option file records idle RSS above 100 MB.
+One note records 196.3 MiB.
+Six sleep tests, each 2 seconds, showed the scheduler.
+A 6000 MB pool and a 3000 MB ask ran 2 tests at the same time, in 6.4 s.
+A pool of 4 cores and `cpu:4` ran 1 test at the same time, in 12.6 s.
+
+No extra ask on a pool of 14 cores ran 6 tests at the same time, in 2.0 s.
+`--local_test_jobs=6` with the 6000 MB pool still ran 2 tests.
+`--local_test_jobs=2` ran 2 tests, in 6.2 s.
+With 512 MB, this Mac still allows 14 MySQL targets.
+The CPU pool is the limit.
+32932 / 512 is 64.
+
+[Reserve CPU and RAM](tools/mysql/defs.bzl#L23-L36)
+[Idle RSS note](tools/mysql/mysqld.cnf#L69-L69)
