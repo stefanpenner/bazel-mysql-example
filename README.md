@@ -11,12 +11,9 @@ bazel test //...
 Bazel fetches the MySQL archive for the platform where the test runs.
 
 A Go test that needs MySQL uses `mysql_go_test`.
+A Go test that does not need MySQL uses `go_test`.
 
 [Test rule](tools/mysql/defs.bzl#L3-L24)
-
-Gazelle writes that rule for a `go_test`.
-
-[Gazelle map](BUILD.bazel#L4-L4)
 
 The rule sets `MYSQLD`, `MYSQL_DATADIR`, and `MYSQL_DEFAULTS_FILE`.
 

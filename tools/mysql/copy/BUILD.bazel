@@ -1,7 +1,6 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
-# This test does not start mysqld. Keep go_test.
-# gazelle:map_kind go_test go_test @rules_go//go:def.bzl
+# This test does not start mysqld.
 
 go_library(
     name = "copy",
