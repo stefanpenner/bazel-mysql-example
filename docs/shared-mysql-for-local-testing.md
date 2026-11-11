@@ -219,6 +219,44 @@ The next command creates a new run id and a new `mysqld`.
 That command does not read the previous databases.
 A command that starts during the idle minute joins the old server.
 
+## How many private servers
+
+Bazel has one CPU pool and one RAM pool for local actions.
+The CPU pool is the number of logical cores.
+The RAM pool is 67 percent of host RAM, in MB.
+On this Mac the pools are 14 cores and 32932 MB.
+
+A test target asks for part of each pool.
+`size` sets the default ask.
+`small` asks for 20 MB and 1 core.
+`medium` asks for 100 MB and 1 core.
+`large` asks for 300 MB and 1 core.
+`enormous` asks for 800 MB and 1 core.
+`mysql_go_test` does not set `size`, so the default ask is `medium`.
+
+A tag replaces that ask.
+`mysql_go_test` adds `cpu:1` and `resources:memory:512`.
+`resources:memory` is MB.
+Bazel starts the test only when both numbers fit.
+
+Set the pools on the command line.
+
+```sh
+--local_resources=cpu=HOST_CPUS
+--local_resources=memory=HOST_RAM*.67
+```
+
+`--local_test_jobs=auto` means 0.
+0 leaves the cap to the pools.
+A positive `--local_test_jobs` is a second cap.
+The smaller cap wins.
+The tag `exclusive` runs one test and no other test.
+
+One `mysql_go_test` target is one test binary.
+With the private server, that binary is one `mysqld`.
+With the shared server, many binaries still run, and they share one `mysqld`.
+The same 512 MB ask applies in both cases.
+
 ## Linux
 
 Do not use the Mac procedure on Linux.
