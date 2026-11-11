@@ -420,22 +420,28 @@ func runWatch() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := stopIfOurs(info); err != nil {
+	if err := releaseAfterStop(root, id, info); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	return 0
+}
+
+// releaseAfterStop clears current only after the pid is confirmed and stopped.
+// A failed datadir query is an error. current stays, and the pid stays.
+func releaseAfterStop(root, id string, info serverInfo) error {
+	if err := stopIfOurs(info); err != nil {
+		return err
+	}
+	if processAlive(info.mysqldPid) {
+		return fmt.Errorf("mysqld %d on %s is still running", info.mysqldPid, info.sock)
 	}
 	start, err := lockFile(filepath.Join(root, "start.lock"), syscall.LOCK_EX)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return err
 	}
-	if err := clearCurrent(root, id); err != nil {
-		unlockClose(start)
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	unlockClose(start)
-	return 0
+	defer unlockClose(start)
+	return clearCurrent(root, id)
 }
 
 func confirmIdle(root, id string) (*os.File, *os.File, error) {
@@ -835,8 +841,10 @@ func stopIfOurs(info serverInfo) error {
 		return nil
 	}
 	got, ok := queryDatadir(info.sock)
-	// Both checks must succeed. A failed query is not a match.
-	if !ok || !samePath(got, info.dataDir) {
+	if !ok {
+		return fmt.Errorf("read datadir for pid %d on socket %s", info.mysqldPid, info.sock)
+	}
+	if !samePath(got, info.dataDir) {
 		return nil
 	}
 	return stopPid(info.mysqldPid)

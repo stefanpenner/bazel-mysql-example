@@ -252,7 +252,9 @@ func TestBadServerFileIsAnError(t *testing.T) {
 func TestStopRefusesWhenDatadirQueryFails(t *testing.T) {
 	exe, err := os.Executable()
 	require.NoError(t, err)
-	dataDir := filepath.Join(shortRoot(t), "data")
+	root := shortRoot(t)
+	id := "0123456789abcdef"
+	dataDir := filepath.Join(root, id, "data")
 	cmd := exec.Command(exe, "--datadir="+dataDir)
 	cmd.Env = putEnv(os.Environ(), "MYSQL_ROLE", "sleep")
 	stdin, err := cmd.StdinPipe()
@@ -273,9 +275,20 @@ func TestStopRefusesWhenDatadirQueryFails(t *testing.T) {
 		supervisorPid: 1,
 		mysqlHash:     "0123456789abcdef",
 	}
-	require.NoError(t, stopIfOurs(info))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, id), 0700))
+	require.NoError(t, writeCurrent(root, id))
+	require.NoError(t, writeServerInfo(filepath.Join(root, id, "server.txt"), info))
+	err = releaseAfterStop(root, id, info)
+	if err == nil || !strings.Contains(err.Error(), "datadir") {
+		t.Fatalf("error %v", err)
+	}
 	if !processAlive(cmd.Process.Pid) {
 		t.Fatal("stop killed a process whose datadir query failed")
+	}
+	got, readErr := readCurrent(root)
+	require.NoError(t, readErr)
+	if got != id {
+		t.Fatalf("current is %q", got)
 	}
 }
 
