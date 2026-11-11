@@ -72,9 +72,9 @@ a full copy took 82 ms and wrote 190 MB.
 An APFS clone took 25 ms and wrote 0.2 MB.
 
 [Marker](tools/mysql/toolchain.bzl#L25-L36)
-[Files for the test](tools/mysql/defs.bzl#L13-L17)
-[Find mysqld](note/server_test.go#L248-L266)
-[Copy into TEST_TMPDIR](note/server_test.go#L52-L62)
+[Files for the test](tools/mysql/defs.bzl#L6-L10)
+[Find mysqld](note/server_test.go#L212-L230)
+[Copy into TEST_TMPDIR](note/server_test.go#L43-L56)
 [Clone or full copy](test/mysql/copy.go#L35-L51)
 [macOS clone](test/mysql/clone_darwin.go#L21-L29)
 [Linux clone](test/mysql/clone_linux.go#L14-L52)
@@ -107,40 +107,5 @@ A time is the median of 2000 autocommit inserts.
 | commit flush 0 and nosync | 6.7 ms | 7.1 ms |
 | binary log off | not measured | not measured |
 
-[Test server flags](note/server_test.go#L116-L159)
+[Test server flags](note/server_test.go#L83-L128)
 [Data directory flags](tools/mysql/toolchain.bzl#L72-L76)
-
-4. Limit how many MySQL test targets run at the same time.
-   Each `mysql_go_test` is one test binary.
-   The private server starts one `mysqld` for that binary.
-   Bazel has one CPU pool and one RAM pool.
-   The CPU pool is the number of logical cores.
-   The RAM pool is 67 percent of host RAM, in MB.
-
-   `size` `medium` asks for 100 MB and 1 core.
-   `mysql_go_test` does not set `size`.
-   The macro adds `cpu:1` and `resources:memory:512`.
-   Bazel starts the test only when both numbers fit.
-
-```
-pool                          each MySQL test
--------------------------     ----------------------
-logical cores                 cpu:1
-67 percent of RAM, in MB      512 MB
-```
-
-Impact. On this Mac the pools are 14 cores and 32932 MB.
-The flag notes record idle RSS above 100 MB.
-One row records 196.3 MiB.
-Six sleep tests, each 2 seconds, showed the scheduler.
-A 6000 MB pool and a 3000 MB ask ran 2 tests at the same time, in 6.4 s.
-A pool of 4 cores and `cpu:4` ran 1 test at the same time, in 12.6 s.
-
-No extra ask on a pool of 14 cores ran 6 tests at the same time, in 2.0 s.
-`--local_test_jobs=6` with the 6000 MB pool still ran 2 tests.
-`--local_test_jobs=2` ran 2 tests, in 6.2 s.
-With 512 MB, this Mac still allows 14 MySQL targets.
-The CPU pool is the limit.
-32932 / 512 is 64.
-
-[Reserve CPU and RAM](tools/mysql/defs.bzl#L21-L35)
